@@ -1,12 +1,14 @@
 package tui
 
 import (
+	"context"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
+	"github.com/agentflow/agentflow/internal/input"
 	"github.com/charmbracelet/bubbles/spinner"
-	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -75,12 +77,16 @@ type (
 	skillMatchedMsg   string
 	tokensUpdatedMsg  int
 	clearMsg          struct{}
+	bashResultMsg     struct {
+		Display string
+		Context string
+	}
 )
 
 // Model represents the TUI state
 type Model struct {
 	// UI components
-	textarea textarea.Model
+	input    input.Model
 	viewport viewport.Model
 	spinner  spinner.Model
 
@@ -116,15 +122,12 @@ type ChatMessage struct {
 
 // New creates a new TUI model
 func New(provider, model string) Model {
-	ta := textarea.New()
-	ta.Placeholder = "Type a message... (Ctrl+Enter to send, /help for commands)"
-	ta.Focus()
-	ta.Prompt = "│ "
-	ta.CharLimit = 4096
-	ta.SetWidth(80)
-	ta.SetHeight(3)
-	ta.FocusedStyle.CursorLine = lipgloss.NewStyle()
-	ta.ShowLineNumbers = false
+	// Get current working directory for history
+	workdir, _ := os.Getwd()
+
+	// Create enhanced input
+	inp := input.New(workdir)
+	inp.SetPlaceholder("Type a message... (Ctrl+Enter to send, /help for commands, ! for bash)")
 
 	sp := spinner.New()
 	sp.Spinner = spinner.Dot
@@ -134,7 +137,7 @@ func New(provider, model string) Model {
 	vp.SetContent("")
 
 	return Model{
-		textarea:     ta,
+		input:        inp,
 		viewport:     vp,
 		spinner:      sp,
 		messages:     make([]ChatMessage, 0),
@@ -147,7 +150,7 @@ func New(provider, model string) Model {
 // Init initializes the model
 func (m Model) Init() tea.Cmd {
 	return tea.Batch(
-		textarea.Blink,
+		m.input.Init(),
 		m.spinner.Tick,
 	)
 }
@@ -160,18 +163,29 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
-		case "ctrl+c", "esc":
+		case "ctrl+c":
 			if m.streaming {
 				m.streaming = false
 				return m, nil
 			}
+			// Let input handle ctrl+c in non-normal modes
+			if m.input.Mode() != input.ModeNormal {
+				m.input, cmd = m.input.Update(msg)
+				return m, cmd
+			}
 			return m, tea.Quit
 
-		case "ctrl+enter", "ctrl+s":
+		case "esc":
 			if m.streaming {
+				m.streaming = false
 				return m, nil
 			}
-			return m.handleSubmit()
+			// Let input handle esc in non-normal modes
+			if m.input.Mode() != input.ModeNormal {
+				m.input, cmd = m.input.Update(msg)
+				return m, cmd
+			}
+			return m, tea.Quit
 
 		case "ctrl+l":
 			m.messages = make([]ChatMessage, 0)
@@ -183,18 +197,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, cmd
 		}
 
+	case input.SubmitMsg:
+		return m.handleInputSubmit(msg)
+
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
 		m.ready = true
 
 		headerHeight := 3
-		footerHeight := 6
+		footerHeight := 8 // Increased for autocomplete popup
 		verticalMargin := headerHeight + footerHeight
 
 		m.viewport.Width = msg.Width
 		m.viewport.Height = msg.Height - verticalMargin
-		m.textarea.SetWidth(msg.Width - 4)
+		m.input.SetWidth(msg.Width - 4)
 
 		m.viewport.SetContent(m.renderMessages())
 		return m, nil
@@ -209,6 +226,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case streamDoneMsg:
 		m.streaming = false
 		m.requestCount++
+		return m, nil
+
+	case bashResultMsg:
+		// Add bash result to conversation
+		m.messages = append(m.messages, ChatMessage{
+			Role:      "bash",
+			Content:   msg.Display,
+			Timestamp: time.Now(),
+		})
+		// Also add to context as a system message
+		m.messages = append(m.messages, ChatMessage{
+			Role:      "context",
+			Content:   msg.Context,
+			Timestamp: time.Now(),
+		})
+		m.viewport.SetContent(m.renderMessages())
+		m.viewport.GotoBottom()
 		return m, nil
 
 	case skillMatchedMsg:
@@ -248,9 +282,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	// Update textarea
+	// Update input
 	if !m.streaming {
-		m.textarea, cmd = m.textarea.Update(msg)
+		m.input, cmd = m.input.Update(msg)
 		cmds = append(cmds, cmd)
 	}
 
@@ -263,22 +297,27 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
-// handleSubmit processes user input
-func (m Model) handleSubmit() (tea.Model, tea.Cmd) {
-	input := strings.TrimSpace(m.textarea.Value())
-	if input == "" {
+// handleInputSubmit processes user input from the enhanced input component
+func (m Model) handleInputSubmit(msg input.SubmitMsg) (tea.Model, tea.Cmd) {
+	inputValue := strings.TrimSpace(msg.Value)
+	if inputValue == "" {
 		return m, nil
 	}
 
+	// Handle bash commands
+	if msg.IsBash {
+		return m.handleBashCommand(inputValue)
+	}
+
 	// Handle commands
-	if strings.HasPrefix(input, "/") {
-		return m.handleCommand(input)
+	if strings.HasPrefix(inputValue, "/") {
+		return m.handleCommand(inputValue)
 	}
 
 	// Add user message
 	m.messages = append(m.messages, ChatMessage{
 		Role:      "user",
-		Content:   input,
+		Content:   inputValue,
 		Timestamp: time.Now(),
 	})
 
@@ -289,7 +328,7 @@ func (m Model) handleSubmit() (tea.Model, tea.Cmd) {
 		Timestamp: time.Now(),
 	})
 
-	m.textarea.Reset()
+	m.input.Reset()
 	m.streaming = true
 	m.currentResp.Reset()
 	m.viewport.SetContent(m.renderMessages())
@@ -297,10 +336,25 @@ func (m Model) handleSubmit() (tea.Model, tea.Cmd) {
 
 	// Trigger the submit callback
 	if m.onSubmit != nil {
-		return m, m.onSubmit(input)
+		return m, m.onSubmit(inputValue)
 	}
 
 	return m, nil
+}
+
+// handleBashCommand executes a bash command and adds output to context
+func (m Model) handleBashCommand(command string) (tea.Model, tea.Cmd) {
+	m.input.Reset()
+	m.viewport.SetContent(m.renderMessages())
+
+	// Execute bash command asynchronously
+	return m, func() tea.Msg {
+		result := input.ExecuteBash(context.Background(), command)
+		return bashResultMsg{
+			Display: input.FormatBashResult(result),
+			Context: input.FormatBashResultForContext(result),
+		}
+	}
 }
 
 // handleCommand processes slash commands
@@ -392,7 +446,7 @@ func (m Model) handleCommand(input string) (tea.Model, tea.Cmd) {
 		})
 	}
 
-	m.textarea.Reset()
+	m.input.Reset()
 	m.viewport.SetContent(m.renderMessages())
 	m.viewport.GotoBottom()
 	return m, nil
@@ -407,6 +461,14 @@ func (m *Model) updateLastAssistantMessage(content string) {
 		}
 	}
 }
+
+// Bash style
+var bashStyle = lipgloss.NewStyle().
+	Foreground(lipgloss.Color("#22C55E")).
+	Bold(true)
+
+var bashOutputStyle = lipgloss.NewStyle().
+	Foreground(lipgloss.Color("#A3E635"))
 
 // renderMessages renders all messages
 func (m Model) renderMessages() string {
@@ -435,6 +497,17 @@ func (m Model) renderMessages() string {
 			sb.WriteString(skillStyle.Render("⚡ " + msg.Content))
 			sb.WriteString("\n\n")
 
+		case "bash":
+			sb.WriteString(bashStyle.Render("🔧 Bash") + " ")
+			sb.WriteString(mutedColor.Render(msg.Timestamp.Format("15:04")))
+			sb.WriteString("\n")
+			sb.WriteString(bashOutputStyle.Render(msg.Content))
+			sb.WriteString("\n")
+
+		case "context":
+			// Context messages are hidden from display but included in conversation
+			continue
+
 		case "system":
 			sb.WriteString(helpStyle.Render(msg.Content))
 			sb.WriteString("\n\n")
@@ -447,24 +520,42 @@ func (m Model) renderMessages() string {
 // renderHelp renders help text
 func (m Model) renderHelp() string {
 	return `
-╭──────────────────────────────────────────────────────────╮
-│                    Available Commands                     │
-├──────────────────────────────────────────────────────────┤
-│  /help, /h, /?     Show this help message                │
-│  /quit, /exit, /q  Exit the session                      │
-│  /clear, /c        Clear conversation history            │
-│  /model [name]     Show or change current model          │
-│  /provider [name]  Show or change provider               │
-│  /status           Show session statistics               │
-│  /skills           List available skills                 │
-│  /compact          Compact conversation history          │
-│  /history          Show conversation stats               │
-├──────────────────────────────────────────────────────────┤
-│  Ctrl+Enter        Send message                          │
-│  Ctrl+L            Clear screen                          │
-│  Ctrl+C / Esc      Cancel / Exit                         │
-│  PgUp/PgDown       Scroll history                        │
-╰──────────────────────────────────────────────────────────╯`
+╭───────────────────────────────────────────────────────────────╮
+│                      Available Commands                        │
+├───────────────────────────────────────────────────────────────┤
+│  /help, /h, /?     Show this help message                     │
+│  /quit, /exit, /q  Exit the session                           │
+│  /clear, /c        Clear conversation history                 │
+│  /model [name]     Show or change current model               │
+│  /provider [name]  Show or change provider                    │
+│  /status           Show session statistics                    │
+│  /skills           List available skills                      │
+│  /compact          Compact conversation history               │
+│  /history          Show conversation stats                    │
+├───────────────────────────────────────────────────────────────┤
+│                        Keyboard Shortcuts                      │
+├───────────────────────────────────────────────────────────────┤
+│  Ctrl+Enter        Send message                               │
+│  Ctrl+L            Clear screen                               │
+│  Ctrl+C / Esc      Cancel / Exit                              │
+│  PgUp/PgDown       Scroll history                             │
+│  ↑/↓               Navigate command history                   │
+│  Ctrl+R            Reverse search history                     │
+│  Tab               Autocomplete commands/files                │
+│  Alt+Enter         Insert newline (multiline input)           │
+│  \ + Enter         Continue on next line                      │
+├───────────────────────────────────────────────────────────────┤
+│                          Bash Mode                             │
+├───────────────────────────────────────────────────────────────┤
+│  !command          Execute bash command directly              │
+│                    e.g., !git status, !ls -la                 │
+│                    Output is added to conversation context    │
+├───────────────────────────────────────────────────────────────┤
+│                         Autocomplete                           │
+├───────────────────────────────────────────────────────────────┤
+│  /...              Complete slash commands                    │
+│  @...              Complete file paths                        │
+╰───────────────────────────────────────────────────────────────╯`
 }
 
 // renderStatus renders session status
@@ -496,14 +587,22 @@ func (m Model) View() string {
 		return "\n  Initializing..."
 	}
 
-	// Header
-	header := titleStyle.Render("🚀 AgentFlow") + "  " + helpStyle.Render("Ctrl+Enter to send • /help for commands")
+	// Header with mode indicator
+	header := titleStyle.Render("🚀 AgentFlow") + "  "
+	switch m.input.Mode() {
+	case input.ModeReverseSearch:
+		header += helpStyle.Render("Ctrl+R: search • Tab: accept • Esc: cancel")
+	case input.ModeAutocomplete:
+		header += helpStyle.Render("Tab/↓: next • Enter: accept • Esc: cancel")
+	default:
+		header += helpStyle.Render("Ctrl+Enter: send • /help • !cmd: bash • Ctrl+R: search")
+	}
 
 	// Main content
 	content := m.viewport.View()
 
 	// Input area
-	inputBox := borderStyle.Render(m.textarea.View())
+	inputBox := borderStyle.Render(m.input.View())
 
 	// Status bar
 	statusBar := m.renderStatusBar()
