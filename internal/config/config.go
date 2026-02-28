@@ -55,6 +55,9 @@ func Load(path string) (*Config, error) {
 	return &cfg, nil
 }
 
+// ConfigSource tracks where configuration was loaded from
+var ConfigSource string = ""
+
 // LoadDefault loads configuration from default locations
 func LoadDefault() (*Config, error) {
 	// Check locations in order
@@ -74,11 +77,13 @@ func LoadDefault() (*Config, error) {
 
 	for _, loc := range locations {
 		if _, err := os.Stat(loc); err == nil {
+			ConfigSource = loc
 			return Load(loc)
 		}
 	}
 
 	// Return default config if no file found
+	ConfigSource = "(default - no config file found)"
 	return DefaultConfig(), nil
 }
 

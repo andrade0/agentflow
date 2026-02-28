@@ -68,7 +68,7 @@ type SubmitMsg struct {
 // New creates a new enhanced input model
 func New(workdir string) Model {
 	ta := textarea.New()
-	ta.Placeholder = "Type a message... (Ctrl+Enter to send, /help for commands)"
+	ta.Placeholder = "Type a message... (Enter to send, Alt+Enter for new line)"
 	ta.Focus()
 	ta.Prompt = "│ "
 	ta.CharLimit = 8192
@@ -154,9 +154,23 @@ func (m Model) handleNormalKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		m.savedInput = m.textarea.Value()
 		return m, nil
 
+	case "enter":
+		// Submit on Enter (single line behavior)
+		value := strings.TrimSpace(m.textarea.Value())
+		if value != "" {
+			return m.submit()
+		}
+		return m, nil
+
 	case "ctrl+enter", "ctrl+s":
-		// Submit
+		// Also submit on Ctrl+Enter
 		return m.submit()
+
+	case "alt+enter", "shift+enter":
+		// Multiline: add new line
+		m.textarea.SetValue(m.textarea.Value() + "\n")
+		m.textarea.CursorEnd()
+		return m, nil
 
 	case "up":
 		// History previous
@@ -199,31 +213,6 @@ func (m Model) handleNormalKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case "alt+enter", "alt+j":
-		// Insert newline (Option+Enter on macOS)
-		m.textarea.InsertString("\n")
-		return m, nil
-
-	case "enter":
-		// Check for backslash continuation
-		input := m.textarea.Value()
-		if strings.HasSuffix(input, "\\") {
-			// Remove backslash and add newline
-			m.textarea.SetValue(strings.TrimSuffix(input, "\\") + "\n")
-			m.textarea.CursorEnd()
-			return m, nil
-		}
-		// If multiline and not empty, check if we should submit or add newline
-		if m.multilineEnabled && input != "" && !strings.HasPrefix(input, "/") && !strings.HasPrefix(input, "!") {
-			// In a multiline context, enter adds a newline
-			// Use Ctrl+Enter to submit
-			m.textarea.InsertString("\n")
-			return m, nil
-		}
-		// Single line commands submit on enter
-		if strings.HasPrefix(input, "/") || strings.HasPrefix(input, "!") {
-			return m.submit()
-		}
 	}
 
 	// Forward to textarea

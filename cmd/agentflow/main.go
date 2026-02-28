@@ -57,6 +57,14 @@ func startREPL() error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
+	// Show config source if verbose or if using default
+	if config.ConfigSource == "(default - no config file found)" {
+		fmt.Printf("⚠️  No config file found. Using defaults (ollama/llama3.3:latest)\n")
+		fmt.Printf("   Create ~/.agentflow/config.yaml to configure your provider.\n\n")
+	} else if os.Getenv("AGENTFLOW_DEBUG") != "" {
+		fmt.Printf("📁 Config loaded from: %s\n\n", config.ConfigSource)
+	}
+
 	// Get provider and model from "provider/model" format
 	defaultModel := cfg.Defaults.Main
 	if defaultModel == "" {

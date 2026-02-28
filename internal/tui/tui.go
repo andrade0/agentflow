@@ -129,7 +129,7 @@ func New(provider, model string) Model {
 
 	// Create enhanced input
 	inp := input.New(workdir)
-	inp.SetPlaceholder("Type a message... (Ctrl+Enter to send, /help for commands, ! for bash)")
+	inp.SetPlaceholder("Type a message... (Enter to send, /help for commands, ! for bash)")
 
 	sp := spinner.New()
 	sp.Spinner = spinner.Dot
@@ -537,7 +537,7 @@ func (m Model) renderHelp() string {
 ├───────────────────────────────────────────────────────────────┤
 │                        Keyboard Shortcuts                      │
 ├───────────────────────────────────────────────────────────────┤
-│  Ctrl+Enter        Send message                               │
+│  Enter             Send message                               │
 │  Ctrl+L            Clear screen                               │
 │  Ctrl+C / Esc      Cancel / Exit                              │
 │  PgUp/PgDown       Scroll history                             │
@@ -597,7 +597,7 @@ func (m Model) View() string {
 	case input.ModeAutocomplete:
 		header += helpStyle.Render("Tab/↓: next • Enter: accept • Esc: cancel")
 	default:
-		header += helpStyle.Render("Ctrl+Enter: send • /help • !cmd: bash • Ctrl+R: search")
+		header += helpStyle.Render("Enter: send • /help • !cmd: bash • Ctrl+R: search")
 	}
 
 	// Main content
