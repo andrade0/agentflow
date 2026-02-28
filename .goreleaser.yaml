@@ -1,0 +1,59 @@
+version: 1
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - main: ./cmd/agentflow
+    binary: agentflow
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+
+archives:
+  - format: tar.gz
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- .Version }}_
+      {{- .Os }}_
+      {{- .Arch }}
+    format_overrides:
+      - goos: windows
+        format: zip
+
+brews:
+  - name: agentflow
+    homepage: https://agentflow.dev
+    description: "Superpowers for everyone - agentic workflows for free models"
+    license: MIT
+    repository:
+      owner: agentflow
+      name: homebrew-tap
+    folder: Formula
+
+checksum:
+  name_template: 'checksums.txt'
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+      - '^chore:'
+
+release:
+  github:
+    owner: agentflow
+    name: agentflow
+  draft: false
+  prerelease: auto
