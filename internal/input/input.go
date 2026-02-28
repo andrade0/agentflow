@@ -184,7 +184,7 @@ func (m Model) handleNormalKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	case "tab":
 		// Trigger autocomplete
 		input := m.textarea.Value()
-		cursorPos := m.textarea.CursorPosition()
+		cursorPos := m.getCursorPosition()
 		completions := m.completer.Complete(input, cursorPos)
 		if len(completions) > 0 {
 			if len(completions) == 1 {
@@ -325,14 +325,34 @@ func (m *Model) applySearchResult() {
 	}
 }
 
+// getCursorPosition calculates the cursor position in the text
+func (m Model) getCursorPosition() int {
+	value := m.textarea.Value()
+	lines := strings.Split(value, "\n")
+	currentLine := m.textarea.Line()
+
+	pos := 0
+	for i := 0; i < currentLine && i < len(lines); i++ {
+		pos += len(lines[i]) + 1 // +1 for newline
+	}
+
+	// Add column offset within current line
+	if currentLine < len(lines) {
+		info := m.textarea.LineInfo()
+		pos += info.CharOffset
+	}
+
+	return pos
+}
+
 // applyCompletion applies a completion to the input
 func (m *Model) applyCompletion(comp Completion) {
 	input := m.textarea.Value()
-	cursorPos := m.textarea.CursorPosition()
+	cursorPos := m.getCursorPosition()
 
 	// Find the start of the word to replace
 	wordStart := cursorPos
-	for wordStart > 0 {
+	for wordStart > 0 && wordStart <= len(input) {
 		ch := input[wordStart-1]
 		if ch == ' ' || ch == '\t' || ch == '\n' {
 			break
@@ -341,14 +361,20 @@ func (m *Model) applyCompletion(comp Completion) {
 	}
 
 	// Build new input
-	newInput := input[:wordStart] + comp.Value
+	var newInput string
+	if wordStart > 0 {
+		newInput = input[:wordStart]
+	}
+	newInput += comp.Value
+
+	// Add remaining text after cursor
 	if cursorPos < len(input) {
 		newInput += input[cursorPos:]
 	}
 
-	// Add space after completion
-	if comp.Type == CompletionCommand {
-		newInput = comp.Value + " "
+	// Add space after command completion
+	if comp.Type == CompletionCommand && !strings.HasSuffix(newInput, " ") {
+		newInput += " "
 	}
 
 	m.textarea.SetValue(newInput)

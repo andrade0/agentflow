@@ -95,10 +95,9 @@ func (h *History) load() error {
 	return scanner.Err()
 }
 
-// save writes history to disk
+// save writes history to disk (must be called while holding the lock)
 func (h *History) save() error {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
+	// Note: caller must hold the lock
 
 	file, err := os.Create(h.filePath)
 	if err != nil {

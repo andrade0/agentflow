@@ -25,6 +25,8 @@ var (
 	bgColor        = lipgloss.Color("#1F2937") // Dark gray
 
 	// Styles
+	mutedStyle = lipgloss.NewStyle().
+			Foreground(mutedColor)
 	titleStyle = lipgloss.NewStyle().
 			Bold(true).
 			Foreground(primaryColor).
@@ -478,14 +480,14 @@ func (m Model) renderMessages() string {
 		switch msg.Role {
 		case "user":
 			sb.WriteString(userStyle.Render("You") + " ")
-			sb.WriteString(mutedColor.Render(msg.Timestamp.Format("15:04")))
+			sb.WriteString(mutedStyle.Render(msg.Timestamp.Format("15:04")))
 			sb.WriteString("\n")
 			sb.WriteString(msg.Content)
 			sb.WriteString("\n\n")
 
 		case "assistant":
 			sb.WriteString(assistantStyle.Render("Agent") + " ")
-			sb.WriteString(mutedColor.Render(msg.Timestamp.Format("15:04")))
+			sb.WriteString(mutedStyle.Render(msg.Timestamp.Format("15:04")))
 			if m.streaming && msg == m.messages[len(m.messages)-1] {
 				sb.WriteString(" " + m.spinner.View())
 			}
@@ -499,7 +501,7 @@ func (m Model) renderMessages() string {
 
 		case "bash":
 			sb.WriteString(bashStyle.Render("🔧 Bash") + " ")
-			sb.WriteString(mutedColor.Render(msg.Timestamp.Format("15:04")))
+			sb.WriteString(mutedStyle.Render(msg.Timestamp.Format("15:04")))
 			sb.WriteString("\n")
 			sb.WriteString(bashOutputStyle.Render(msg.Content))
 			sb.WriteString("\n")

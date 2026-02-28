@@ -22,6 +22,11 @@ type BashResult struct {
 func ExecuteBash(ctx context.Context, command string) BashResult {
 	start := time.Now()
 
+	// Use background context if none provided
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
 	// Create command with bash
 	cmd := exec.CommandContext(ctx, "bash", "-c", command)
 

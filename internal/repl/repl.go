@@ -363,9 +363,9 @@ func (r *REPL) printHistory() {
 // processInput processes user input and generates a response
 func (r *REPL) processInput(ctx context.Context, input string) error {
 	// Match skill
-	matchedSkill := r.skills.Match(input)
-	if matchedSkill != nil {
-		color.HiBlack("\n[Skill: %s]\n", matchedSkill.Name)
+	matchedSkills := r.skills.Match(input)
+	if len(matchedSkills) > 0 {
+		color.HiBlack("\n[Skill: %s]\n", matchedSkills[0].Name)
 	}
 
 	// Generate response with streaming

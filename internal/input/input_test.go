@@ -126,8 +126,17 @@ func TestCompleter(t *testing.T) {
 
 	t.Run("CommandCompletion", func(t *testing.T) {
 		results := c.Complete("/he", 3)
-		if len(results) != 2 { // /help and /history
-			t.Errorf("Expected 2 results, got %d", len(results))
+		if len(results) != 1 { // /help matches
+			t.Errorf("Expected 1 result for /he, got %d", len(results))
+		}
+		if results[0].Value != "/help" {
+			t.Errorf("Expected /help, got %s", results[0].Value)
+		}
+
+		// Test /h which should match /help and /history
+		results2 := c.Complete("/h", 2)
+		if len(results2) != 2 { // /help and /history
+			t.Errorf("Expected 2 results for /h, got %d", len(results2))
 		}
 	})
 
