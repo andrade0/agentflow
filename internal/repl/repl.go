@@ -12,18 +12,22 @@ import (
 	"github.com/agentflow/agentflow/internal/agent"
 	"github.com/agentflow/agentflow/internal/config"
 	"github.com/agentflow/agentflow/internal/provider"
+	"github.com/agentflow/agentflow/internal/session"
 	"github.com/agentflow/agentflow/internal/skill"
 	"github.com/fatih/color"
 )
 
 // REPL represents the interactive Read-Eval-Print Loop
 type REPL struct {
-	config       *config.Config
-	provider     provider.Provider
-	skillManager *skill.Manager
-	agent        *agent.Agent
-	history      []Message
-	running      bool
+	config         *config.Config
+	provider       provider.Provider
+	skillManager   *skill.Manager
+	agent          *agent.Agent
+	history        []Message
+	running        bool
+	session        *session.Session
+	sessionManager *session.Manager
+	autoSave       bool
 }
 
 // Message represents a conversation message
